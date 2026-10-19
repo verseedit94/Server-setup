@@ -1,0 +1,26 @@
+name: Pull to release
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: MediaFire link
+        required: true
+permissions:
+  contents: write
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download
+        env:
+          URL: ${{ inputs.url }}
+        run: |
+          if [[ "$URL" == *mediafire.com/file* ]]; then
+            URL=$(curl -sL "$URL" | grep -oP 'https://download[^"]+' | head -1)
+          fi
+          wget -O setup.tar.gz "$URL"
+          ls -lh setup.tar.gz
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create v2 setup.tar.gz --repo ${{ github.repository }} --title "Setup"￼Enter
