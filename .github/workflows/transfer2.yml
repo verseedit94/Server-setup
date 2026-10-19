@@ -1,0 +1,20 @@
+name: Transfer file 2
+on:
+  workflow_dispatch:
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v2 --repo ${{ github.repository }} --pattern setup.tar.gz
+          ls -lh setup.tar.gz
+      - name: Upload via SFTP
+        env:
+          SSHPASS: ${{ secrets.SFTP_PASS }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+        run: |
+          sudo apt-get install -y sshpass
+          echo "put setup.tar.gz" | sshpass -e sftp -P 2022 -o BatchMode=no -o StrictHostKeyChecking=no -o User="$SFTP_USER" -o ServerAliveInterval=30 -b - 51.79.230.35
