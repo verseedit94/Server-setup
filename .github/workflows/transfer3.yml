@@ -1,0 +1,24 @@
+name: Transfer extracted files
+on:
+  workflow_dispatch:
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and extract
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v2 --repo ${{ github.repository }} --pattern setup.tar.gz
+          mkdir extracted
+          tar -xzf setup.tar.gz -C extracted
+          rm setup.tar.gz
+          du -sh extracted
+          ls extracted
+      - name: Upload files via SFTP
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASS }}
+        run: |
+          sudo apt-get install -y lftp
+          lftp -u "$SFTP_USER,$SFTP_PASS" -p 2022 sftp://51.79.230.35 -e "set sftp:auto-confirm yes; set net:max-retries 10; set net:reconnect-interval-base 5; mirror -R -c --parallel=3 --verbose extracted /; bye"
