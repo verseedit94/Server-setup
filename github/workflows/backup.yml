@@ -1,0 +1,38 @@
+name: Backup server
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download server files via SFTP
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASS }}
+        run: |
+          sudo apt-get install -y lftp
+          mkdir server
+          lftp -u "$SFTP_USER,$SFTP_PASS" -p 2022 sftp://51.79.230.35 -e "set sftp:auto-confirm yes; set net:max-retries 10; set net:reconnect-interval-base 5; mirror -c --parallel=3 --exclude-glob logs/ --exclude-glob cache/ --exclude-glob crash-reports/ / server; bye"
+          du -sh server
+      - name: Pack into archives
+        run: |
+          mkdir out
+          cd server
+          excl=(--exclude=./plugins)
+          for d in */; do
+            d=${d%/}
+            if [ -f "$d/level.dat" ]; then
+              tar czf ../out/$d.tar.gz $d
+              excl+=(--exclude=./$d)
+            fi
+          done
+          [ -d plugins ] && tar czf ../out/plugins.tar.gz plugins
+          tar czf ../out/others.tar.gz "${excl[@]}" .
+          ls -lh ../out
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create backup-$(date +%Y%m%d-%H%M) out/*.tar.gz --repo ${{ github.repository }} --title "Server backup"
