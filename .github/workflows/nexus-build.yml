@@ -1,0 +1,75 @@
+name: Build Nexus APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract project zip
+        run: |
+          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "::error::Repo ke root me koi .zip file nahi mili"
+            exit 1
+          fi
+          echo "Using $ZIP"
+          SRC="$RUNNER_TEMP/src"
+          mkdir -p "$SRC"
+          unzip -q -o "$ZIP" -d "$SRC"
+          # zip ke andar zip ho to use bhi kholo (3 level tak)
+          for i in 1 2 3; do
+            N=$(find "$SRC" -name '*.zip' | head -n 1)
+            if [ -z "$N" ]; then break; fi
+            echo "Nested zip mili: $N"
+            unzip -q -o "$N" -d "${N%.zip}_x"
+            rm "$N"
+          done
+          PUB=$(find "$SRC" -name pubspec.yaml | head -n 1)
+          if [ -z "$PUB" ]; then
+            echo "::error::Zip ke andar pubspec.yaml nahi mili. Andar ye files hain:"
+            find "$SRC" -maxdepth 3 | head -60
+            exit 1
+          fi
+          echo "APP_DIR=$(dirname "$PUB")" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android platform and configure
+        run: |
+          cd "$APP_DIR"
+          if [ ! -d android ]; then
+            flutter create --platforms=android --org com.nexus --project-name nexus .
+          fi
+          python3 tool/patch_android.py
+
+      - name: Get packages and icons
+        run: |
+          cd "$APP_DIR"
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      - name: Build release APK
+        env:
+          NEXUS_LICENSE_SECRET: ${{ secrets.NEXUS_LICENSE_SECRET }}
+        run: |
+          cd "$APP_DIR"
+          flutter build apk --release --dart-define=NEXUS_SECRET="$NEXUS_LICENSE_SECRET"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-APK
+          path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
