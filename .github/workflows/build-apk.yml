@@ -1,0 +1,65 @@
+name: Build Nexus APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract project zip
+        run: |
+          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "::error::Repo ke root me koi .zip file nahi mili (nexus_app.zip upload karein)"
+            exit 1
+          fi
+          echo "Using $ZIP"
+          mkdir -p "$RUNNER_TEMP/src"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP/src"
+          PUB=$(find "$RUNNER_TEMP/src" -name pubspec.yaml -not -path '*/.*' | head -n 1)
+          if [ -z "$PUB" ]; then
+            echo "::error::Zip ke andar pubspec.yaml nahi mili"
+            exit 1
+          fi
+          echo "APP_DIR=$(dirname "$PUB")" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android platform and configure
+        run: |
+          cd "$APP_DIR"
+          if [ ! -d android ]; then
+            flutter create --platforms=android --org com.nexus --project-name nexus .
+          fi
+          python3 tool/patch_android.py
+
+      - name: Get packages and icons
+        run: |
+          cd "$APP_DIR"
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      - name: Build release APK
+        env:
+          NEXUS_LICENSE_SECRET: ${{ secrets.NEXUS_LICENSE_SECRET }}
+        run: |
+          cd "$APP_DIR"
+          flutter build apk --release --dart-define=NEXUS_SECRET="$NEXUS_LICENSE_SECRET"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nexus-APK
+          path: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk/app-release.apk
